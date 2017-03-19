@@ -11,3 +11,9 @@ Thumbs.db
 
 #office cache files
 ~$*
+
+#temp files
+.gz
+
+#log files
+.log
