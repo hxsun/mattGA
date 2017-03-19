@@ -4,7 +4,7 @@ Created on Jan 27, 2017
 @author: haoxsun
 '''
 from openpyxl import load_workbook
-from openpyxl.utils import coordinate_from_string, column_index_from_string
+from openpyxl.utils import column_index_from_string
 from pymongo import MongoClient
 from multiprocessing import Process, Queue
 
@@ -12,25 +12,50 @@ SEC_DOMAIN = "https://www.sec.gov"
 # Function to retreive the actual "period of report" and "10k report url"
 from lxml import html
 import requests
-def parseIntroPage(q, url):
-    page = requests.get(url)
-    tree = html.fromstring(page.content)
-    periodOfReportStr = tree.xpath("//div[@id='formDiv']//div[@class='formGrouping'][2]//div[@class='info'][1]/text()")[0]
-    actualURLs = tree.xpath("//table[@class='tableFile']//tr[td[4]='10-K']/td[3]/a/@href")
-    availableURLs = []
-    for url in actualURLs:
-        if url.endswith('.txt') or url.endswith('.htm'):
-            availableURLs.append(url)
-    q.put({'periodOfReport': periodOfReportStr, 'actual10KURL': availableURLs})
-
-
-
 import logging
 #import os
 from time import time
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logging.getLogger('requests').setLevel(logging.CRITICAL)
+
+
 logger = logging.getLogger(__name__)
+logging.getLogger('requests').setLevel(logging.CRITICAL)
+
+logger.setLevel(logging.DEBUG)
+# create file handler which logs even debug messages
+fh = logging.FileHandler('error.log')
+fh.setLevel(logging.DEBUG)
+# create console handler with a higher log level
+ch = logging.StreamHandler()
+ch.setLevel(logging.ERROR)
+# create formatter and add it to the handlers
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+fh.setFormatter(formatter)
+ch.setFormatter(formatter)
+# add the handlers to the logger
+logger.addHandler(fh)
+logger.addHandler(ch)
+
+
+
+def parseIntroPage(q, url):
+    page = requests.get(url)
+    tree = html.fromstring(page.content)
+    nodes = tree.xpath("//div[@id='formDiv']//div[@class='formGrouping'][2]//div[@class='info'][1]/text()")
+    #print(url)
+    if (nodes is not None and len(nodes) != 0):
+        
+        periodOfReportStr = nodes[0]
+        actualURLs = tree.xpath("//table[@class='tableFile']//tr[td[4]='10-K']/td[3]/a/@href")
+        availableURLs = []
+        for url in actualURLs:
+            if url.endswith('.txt') or url.endswith('.htm'):
+                availableURLs.append(url)
+        q.put({'periodOfReport': periodOfReportStr, 'actual10KURL': availableURLs})
+    else:
+        logger.error("Error URL:" + url)
+        print("Error URL:" + url)
+        q.put(None)
+    
 
 def main():
     ts = time()
@@ -73,6 +98,8 @@ def main():
             p = Process(target=parseIntroPage, args=(q, httpNameHtml))
             p.start()
             results = q.get()
+            if (results is None):
+                continue
             p.join()
             dataDic = {}
             dataDic['companyFKey'] = companyFKey
@@ -89,7 +116,7 @@ def main():
             if (results['periodOfReport'] != peDate):
                 unMatchedRecordsNum = unMatchedRecordsNum + 1
                 matched = False
-                print("UnMatched, origDate:%s, newDate:%s, companyFKey:%s"%
+                logger.debug("UnMatched, origDate:%s, newDate:%s, companyFKey:%s"%
                       (peDate, results['periodOfReport'], companyFKey))
             dataDic['Matched'] = matched
             dataDic['periodOfReport'] = results['periodOfReport']
